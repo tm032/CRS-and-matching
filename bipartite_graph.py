@@ -68,11 +68,9 @@ class LP_Model:
                 for ordering in self.arrival_orders:
                     if ordering.lt(u, v):
                         constraint_expr += self.c[ordering.id][(u, v)] * ordering.p
-                        print(ordering.id, u, v)
 
                     if ordering.lt(v, u):
                         constraint_expr += self.c[ordering.id][(v, u)] * ordering.p
-                        print(ordering.id, v, u)
 
                 self.model.addConstr(constraint_expr >= self.alpha, name=f"constr_1_{u}_{v}")
 
@@ -98,10 +96,13 @@ class LP_Model:
         self.build_lp_constraints()
         self.model.setObjective(self.alpha, GRB.MAXIMIZE)
 
-    def optimize(self):
+    def optimize(self, suppress_output=True):
+        if suppress_output:
+            self.model.setParam('OutputFlag', 0)  # Suppress Gurobi output
+
         self.model.optimize()
 
-    def get_solution(self, export_json=False):
+    def get_solution(self, export_json=False, json_file_name=None):
         solution = {}
         json_solution = {}
 
@@ -122,15 +123,18 @@ class LP_Model:
                         json_solution[ordering.id][f"{v},{u}"] = self.c[ordering.id][(v, u)].X
 
         if export_json:
-            with open("lp_solution.json", "w") as f:
+            if json_file_name is None:
+                json_file_name = "lp_solution.json"
+
+            with open(json_file_name, "w") as f:
                 json.dump(json_solution, f, indent=4)
         return solution
-
-
         
-def test_with_star_graph():
+def test_fb_star_graph(size_V, u_arrival_time, result_file_name=None):
+    if result_file_name is None:
+        result_file_name = f"fb_star_graph_V{size_V}_arrival{u_arrival_time}.json"
+
     size_U = 1  # Number of center vertices in the star graph
-    size_V = 10  # Number of vertices in the star graph
 
     bipartite_graph = BipartiteGraph(size_U, size_V)
     
@@ -138,7 +142,6 @@ def test_with_star_graph():
         for v in bipartite_graph.V:
             bipartite_graph.set_weight(u, v, 1/size_V) # Uniform fractional matching weights
 
-    u_arrival_time = int(size_V * 0.4) # Between 0 to size_V
     order_1 = [bipartite_graph.V[i] for i in range(u_arrival_time)] + [bipartite_graph.U[0]] + [bipartite_graph.V[i] for i in range(u_arrival_time, size_V)]
     order_2 = list(reversed(order_1))
 
@@ -146,14 +149,57 @@ def test_with_star_graph():
     ordering_2 = Ordering("ordering_2", bipartite_graph, 0.5, order_2)
 
     arrival_orderings = [ordering_1, ordering_2]
-    # arrival_orderings = [ordering_1]
 
     lp_model = LP_Model(bipartite_graph, arrival_orderings)
     lp_model.build_model()
     lp_model.optimize()
-    solution = lp_model.get_solution(export_json=True)
+    solution = lp_model.get_solution(export_json=True, json_file_name=result_file_name)
+    
+    print(f"FB Arrival Order, |U|={size_U}, |V|={size_V}, u_arrival_time={u_arrival_time}, alpha={solution['alpha']}")
 
     return solution
 
+def test_single_arrival_star_graph(size_V, u_arrival_time, result_file_name=None):
+    if result_file_name is None:
+        result_file_name = f"single_arrival_star_graph_V{size_V}_arrival{u_arrival_time}.json"
+
+    size_U = 1  # Number of center vertices in the star graph
+
+    bipartite_graph = BipartiteGraph(size_U, size_V)
+    
+    for u in bipartite_graph.U:
+        for v in bipartite_graph.V:
+            bipartite_graph.set_weight(u, v, 1/size_V) # Uniform fractional matching weights
+
+    order = [bipartite_graph.V[i] for i in range(u_arrival_time)] + [bipartite_graph.U[0]] + [bipartite_graph.V[i] for i in range(u_arrival_time, size_V)]
+
+    ordering = Ordering("ordering", bipartite_graph, 1.0, order)
+
+    arrival_orderings = [ordering]
+
+    lp_model = LP_Model(bipartite_graph, arrival_orderings)
+    lp_model.build_model()
+    lp_model.optimize()
+    solution = lp_model.get_solution(export_json=True, json_file_name=result_file_name)
+
+    print(f"Single Arrival Order, |U|={size_U}, |V|={size_V}, u_arrival_time={u_arrival_time}, alpha={solution['alpha']}")
+
+    return solution
+
+
 if __name__ == "__main__":
-    test_with_star_graph()
+    test_fb_star_graph(size_V=1000, u_arrival_time=400)
+    test_fb_star_graph(size_V=100, u_arrival_time=40)
+    test_fb_star_graph(size_V=10, u_arrival_time=4)
+
+    test_fb_star_graph(size_V=1000, u_arrival_time=100)
+    test_fb_star_graph(size_V=100, u_arrival_time=10)
+    test_fb_star_graph(size_V=10, u_arrival_time=1)
+
+    test_single_arrival_star_graph(size_V=1000, u_arrival_time=400)
+    test_single_arrival_star_graph(size_V=100, u_arrival_time=40)
+    test_single_arrival_star_graph(size_V=10, u_arrival_time=4)
+
+    test_single_arrival_star_graph(size_V=1000, u_arrival_time=100)
+    test_single_arrival_star_graph(size_V=100, u_arrival_time=10)
+    test_single_arrival_star_graph(size_V=10, u_arrival_time=1)
