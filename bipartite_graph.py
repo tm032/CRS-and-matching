@@ -3,6 +3,7 @@ import gurobipy as gp
 from gurobipy import GRB
 import json
 import pickle as pkl
+import random
 
 class BipartiteGraph:
     def __init__(self, size_U, size_V, weights=None):
@@ -27,10 +28,12 @@ class Ordering:
         self.bipartite_graph = bipartite_graph
         self.arrival_order = {}
         self.p = p          # Probability of this ordering
+        self.arrival_order_list = arrival_order_list
         
-        for idx, vertex in enumerate(arrival_order_list):
-            self.arrival_order[vertex] = idx
-    
+        if arrival_order_list is not None:
+            for idx, vertex in enumerate(arrival_order_list):
+                self.arrival_order[vertex] = idx
+
     def lt(self, v1, v2):
         return self.arrival_order[v1] < self.arrival_order[v2]
     
@@ -38,6 +41,29 @@ class Ordering:
         reversed_order = list(reversed(self.arrival_order))
         return Ordering(self.bipartite_graph, p, reversed_order)
     
+    def get_previous_vertex(self, vertex, same_side=False):
+        idx = self.arrival_order[vertex]
+        if idx == 0:
+            return None
+        for i in range(idx-1, -1, -1):
+            prev_vertex = self.arrival_order_list[i]
+            if same_side:
+                if (vertex in self.bipartite_graph.U and prev_vertex in self.bipartite_graph.U) or \
+                   (vertex in self.bipartite_graph.V and prev_vertex in self.bipartite_graph.V):
+                    return prev_vertex
+        return None
+    
+    def get_next_vertex(self, vertex, same_side=False):
+        idx = self.arrival_order[vertex]
+        if idx == len(self.arrival_order_list) - 1:
+            return None
+        for i in range(idx+1, len(self.arrival_order_list)):
+            next_vertex = self.arrival_order_list[i]
+            if same_side:
+                if (vertex in self.bipartite_graph.U and next_vertex in self.bipartite_graph.U) or \
+                    (vertex in self.bipartite_graph.V and next_vertex in self.bipartite_graph.V):
+                      return next_vertex
+        return None
 
 class LP_Model:
     def __init__(self, bipartite_graph, arrival_ordering:list[Ordering]):
@@ -60,7 +86,7 @@ class LP_Model:
 
             self.c[ordering.id] = self.model.addVars(vertex_pairs, name=f"c_{ordering.id}", lb=0, ub=1, vtype=GRB.CONTINUOUS)
     
-    def build_lp_constraints(self):
+    def build_lp_constraints(self, tight_constr):
         for u in self.bipartite_graph.U:
             for v in self.bipartite_graph.V:
                 constraint_expr = gp.LinExpr()
@@ -90,10 +116,21 @@ class LP_Model:
                     
                     if ordering.lt(u, v):
                         self.model.addConstr(self.c[ordering.id][(u, v)] <= 1 - expr_1 - expr_2, name=f"constr_2_{ordering.id}_{u}_{v}")
-                    
-    def build_model(self):
+
+        if tight_constr:
+            for ordering in self.arrival_orders:
+                for u in self.bipartite_graph.U:
+                    for v in self.bipartite_graph.V:
+                        prev_v = ordering.get_previous_vertex(v, same_side=True)
+                        if prev_v is None: continue
+                        if ordering.lt(u, v) and ordering.lt(u, prev_v):
+                            self.model.addConstr(self.c[ordering.id][(u, v)] <= self.c[ordering.id][(u, prev_v)], name=f"constr_3_{ordering.id}_{u}_{v}")
+                        if ordering.lt(v, u) and ordering.lt(prev_v, u):
+                            self.model.addConstr(self.c[ordering.id][(v, u)] <= self.c[ordering.id][(prev_v, u)], name=f"constr_3_{ordering.id}_{u}_{v}")
+                
+    def build_model(self, tight_constr=False):
         self.build_lp_variables()
-        self.build_lp_constraints()
+        self.build_lp_constraints(tight_constr)
         self.model.setObjective(self.alpha, GRB.MAXIMIZE)
 
     def optimize(self, suppress_output=True):
@@ -131,65 +168,29 @@ class LP_Model:
     def export_solution_to_pickle(self, pickle_file_name):
         with open(pickle_file_name, 'wb') as f:
             pkl.dump(self.solution, f)
+
+    def return_model(self):
+        return self.model
         
-        
-def test_fb_star_graph(size_V, u_arrival_time, result_file_name=None):
-    if result_file_name is None:
-        result_file_name = f"fb_star_graph_V{size_V}_arrival{u_arrival_time}.json"
+def test_fb_star_graph(size_V, u_arrival_time, result_file_name=None, random_order=False, tight_constr=False):
+    return test_bipartite_graph(size_U=1, 
+                                size_V=size_V, 
+                                u_arrival_times=[u_arrival_time], 
+                                result_file_name=result_file_name, 
+                                fb=True, 
+                                random_order=random_order,
+                                tight_constr=tight_constr)
 
-    size_U = 1  # Number of center vertices in the star graph
+def test_single_arrival_star_graph(size_V, u_arrival_time, result_file_name=None, random_order=False, tight_constr=False):
+    return test_bipartite_graph(size_U=1, 
+                                size_V=size_V, 
+                                u_arrival_times=[u_arrival_time], 
+                                result_file_name=result_file_name, 
+                                fb=False, 
+                                random_order=random_order, 
+                                tight_constr=tight_constr)
 
-    bipartite_graph = BipartiteGraph(size_U, size_V)
-    
-    for u in bipartite_graph.U:
-        for v in bipartite_graph.V:
-            bipartite_graph.set_weight(u, v, 1/size_V) # Uniform fractional matching weights
-
-    order_1 = [bipartite_graph.V[i] for i in range(u_arrival_time)] + [bipartite_graph.U[0]] + [bipartite_graph.V[i] for i in range(u_arrival_time, size_V)]
-    order_2 = list(reversed(order_1))
-
-    ordering_1 = Ordering("ordering_1", bipartite_graph, 0.5, order_1)
-    ordering_2 = Ordering("ordering_2", bipartite_graph, 0.5, order_2)
-
-    arrival_orderings = [ordering_1, ordering_2]
-
-    lp_model = LP_Model(bipartite_graph, arrival_orderings)
-    lp_model.build_model()
-    lp_model.optimize()
-    lp_model.export_solution_to_json(json_file_name=result_file_name)
-    
-    print(f"FB Arrival Order, |U|={size_U}, |V|={size_V}, u_arrival_time={u_arrival_time}, alpha={lp_model.get_solution()['alpha']}")
-
-    return lp_model.get_solution()
-
-def test_single_arrival_star_graph(size_V, u_arrival_time, result_file_name=None):
-    if result_file_name is None:
-        result_file_name = f"single_arrival_star_graph_V{size_V}_arrival{u_arrival_time}.json"
-
-    size_U = 1  # Number of center vertices in the star graph
-
-    bipartite_graph = BipartiteGraph(size_U, size_V)
-    
-    for u in bipartite_graph.U:
-        for v in bipartite_graph.V:
-            bipartite_graph.set_weight(u, v, 1/size_V) # Uniform fractional matching weights
-
-    order = [bipartite_graph.V[i] for i in range(u_arrival_time)] + [bipartite_graph.U[0]] + [bipartite_graph.V[i] for i in range(u_arrival_time, size_V)]
-
-    ordering = Ordering("ordering", bipartite_graph, 1.0, order)
-
-    arrival_orderings = [ordering]
-
-    lp_model = LP_Model(bipartite_graph, arrival_orderings)
-    lp_model.build_model()
-    lp_model.optimize()
-    lp_model.export_solution_to_json(json_file_name=result_file_name)
-
-    print(f"Single Arrival Order, |U|={size_U}, |V|={size_V}, u_arrival_time={u_arrival_time}, alpha={lp_model.get_solution()['alpha']}")
-
-    return lp_model.get_solution()
-
-def test_bipartite_graph(size_U, size_V, u_arrival_times, result_file_name=None, export_json=True, fb=False,):
+def test_bipartite_graph(size_U, size_V, u_arrival_times, result_file_name=None, export_json=True, fb=False, random_order=False, tight_constr=False):
     if result_file_name is None:
         result_file_name = f"single_arrival_bipartite_graph_U{size_U}_V{size_V}_arrival{u_arrival_times}.json"
 
@@ -199,12 +200,16 @@ def test_bipartite_graph(size_U, size_V, u_arrival_times, result_file_name=None,
         for v in bipartite_graph.V:
             bipartite_graph.set_weight(u, v, 1/max(size_U, size_V)) # Uniform fractional matching weights
 
-    order = [bipartite_graph.V[i] for i in range(u_arrival_times[0])] + [bipartite_graph.U[0]]
-    for t in range(1, len(u_arrival_times)):
-        order += [bipartite_graph.V[i] for i in range(u_arrival_times[t-1], u_arrival_times[t])] + [bipartite_graph.U[t]]
-
-    order += [bipartite_graph.V[i] for i in range(u_arrival_times[-1], size_V)]
-    
+    if random_order:
+        all_vertices = bipartite_graph.V + bipartite_graph.U
+        random.shuffle(all_vertices)
+        order = all_vertices
+    else:
+        order = [bipartite_graph.V[i] for i in range(u_arrival_times[0])] + [bipartite_graph.U[0]]
+        for t in range(1, len(u_arrival_times)):
+            order += [bipartite_graph.V[i] for i in range(u_arrival_times[t-1], u_arrival_times[t])] + [bipartite_graph.U[t]]
+        order += [bipartite_graph.V[i] for i in range(u_arrival_times[-1], size_V)]
+        
     if fb:
         reverse_order = list(reversed(order))
         ordering_1 = Ordering("ordering_1", bipartite_graph, 0.5, order)
@@ -215,15 +220,29 @@ def test_bipartite_graph(size_U, size_V, u_arrival_times, result_file_name=None,
         arrival_orderings = [ordering]
 
     lp_model = LP_Model(bipartite_graph, arrival_orderings)
-    lp_model.build_model()
+    lp_model.build_model(tight_constr=tight_constr)
     lp_model.optimize()
 
-    lp_model.export_solution_to_json(json_file_name=result_file_name)
+    if export_json:
+        lp_model.export_solution_to_json(json_file_name=result_file_name)
+
+    model = lp_model.return_model()
+    nb_reduced_cost_strictly_positive = True
+
+    for v in model.getVars():
+        if v.VBasis != GRB.BASIC:  # Nonbasic variable at lower bound
+            if abs(v.RC) < 1e-6:
+                nb_reduced_cost_strictly_positive = False
+            # print(f"Nonbasic: {v.VarName}={v.X}, Reduced Cost={v.RC}")
+        else:
+            # print(f"Basic:    {v.VarName}={v.X}")
+            pass
 
     if fb:
-        print(f"FB Arrival Order, |U|={size_U}, |V|={size_V}, u_arrival_times={u_arrival_times}, alpha={lp_model.get_solution()['alpha']}")
+        print(f"FB Arrival Order, |U|={size_U}, |V|={size_V}, u_arrival_times={u_arrival_times}, alpha={lp_model.get_solution()['alpha']}, nb_reduced_cost>0: {nb_reduced_cost_strictly_positive}")
     else:
-        print(f"Single Arrival Order, |U|={size_U}, |V|={size_V}, u_arrival_times={u_arrival_times}, alpha={lp_model.get_solution()['alpha']}")
+        print(f"Single Arrival Order, |U|={size_U}, |V|={size_V}, u_arrival_times={u_arrival_times}, alpha={lp_model.get_solution()['alpha']}, nb_reduced_cost>0: {nb_reduced_cost_strictly_positive}")
+
 
     return lp_model.get_solution()
 
@@ -266,9 +285,20 @@ def test_bipartite_graph_all_permutations(size_U, size_V, result_file_name=None)
     print(f"All permutations, |U|={size_U}, |V|={size_V}, alpha={lp_model.get_solution()['alpha']}")
 
 if __name__ == "__main__":
+    # test_single_arrival_star_graph(size_V=10, u_arrival_time=0, result_file_name="test.json")
+    test_fb_star_graph(size_V=1000, u_arrival_time=100, result_file_name="test1.json", tight_constr=False)
+    test_fb_star_graph(size_V=1000, u_arrival_time=100, result_file_name="test2.json", tight_constr=True)
+
+    # test_bipartite_graph(size_U=10, size_V=10, u_arrival_times=None, result_file_name="test.json", fb=True, random_order=True)
+
     # test_bipartite_graph(size_U=1, size_V=100, u_arrival_times=[99], result_file_name="test_bipartite.json", fb=False)
 
-    # test_bipartite_graph(size_U=2, size_V=2, u_arrival_times=[0,1], result_file_name="test_bipartite.json", fb=False)
+    # test_bipartite_graph(size_U=2, size_V=10, u_arrival_times=[4,8], result_file_name="single_bipartite_U2_V10_arrival4_8.json", fb=False)
+    # test_bipartite_graph(size_U=2, size_V=100, u_arrival_times=[40,80], result_file_name="single_bipartite_U2_V100_arrival40_80.json", fb=False)
+    # test_bipartite_graph(size_U=2, size_V=1000, u_arrival_times=[400,800], result_file_name="single_bipartite_U2_V1000_arrival400_800.json", fb=False)
+    # test_bipartite_graph(size_U=2, size_V=10, u_arrival_times=[4,8], result_file_name="fb_bipartite_U2_V10_arrival4_8.json", fb=True)
+    # test_bipartite_graph(size_U=2, size_V=100, u_arrival_times=[40,80], result_file_name="fb_bipartite_U2_V100_arrival40_80.json", fb=True)
+    # test_bipartite_graph(size_U=2, size_V=1000, u_arrival_times=[400,800], result_file_name="fb_bipartite_U2_V1000_arrival400_800.json", fb=True)
 
 
     # test_bipartite_graph(size_U=2, size_V=100, u_arrival_times=[1, 50], result_file_name="fb_bipartite_graph_U2_V100_arrival40_80.json", fb=True)
@@ -303,4 +333,4 @@ if __name__ == "__main__":
     # for i in range(len(result)):
     #     selectability.append(result[i]['alpha'])
 
-    test_bipartite_graph_all_permutations(size_U=2, size_V=7)
+    # test_bipartite_graph_all_permutations(size_U=2, size_V=7)
