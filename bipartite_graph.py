@@ -1,4 +1,5 @@
 import math
+from xml.parsers.expat import model
 import gurobipy as gp
 from gurobipy import GRB
 import json
@@ -64,6 +65,69 @@ class Ordering:
                     (vertex in self.bipartite_graph.V and next_vertex in self.bipartite_graph.V):
                       return next_vertex
         return None
+    
+class Simple_LP_FOR_FB:
+    def __init__(self, bipartite_graph, forward_arrival_ordering:Ordering):
+        self.model = gp.Model()
+        self.bipartite_graph = bipartite_graph
+        self.arrival_order = forward_arrival_ordering
+        self.c = {}
+
+    def build_lp_variables(self):
+        self.alpha = self.model.addVar(name="alpha", lb=0, vtype=GRB.CONTINUOUS)
+        self.x_f = self.model.addVar(name="x_f", lb=0, ub=1, vtype=GRB.CONTINUOUS)
+        self.x_b = self.model.addVar(name="x_b", lb=0, ub=1, vtype=GRB.CONTINUOUS)
+        self.y_f = self.model.addVar(name="y_f", lb=0, vtype=GRB.CONTINUOUS)
+        self.y_b = self.model.addVar(name="y_b", lb=0, vtype=GRB.CONTINUOUS)
+
+    def build_lp_constraints(self):
+        sum_group_1_edges = 0
+        sum_group_2_edges = 0
+        for u in self.bipartite_graph.U:
+            for v in self.bipartite_graph.V:
+                if self.arrival_order.lt(u, v):
+                    sum_group_1_edges += self.bipartite_graph.get_weight(u, v)
+                else:
+                    sum_group_2_edges += self.bipartite_graph.get_weight(v, u)
+
+        self.model.addConstr(self.y_f <= 1 - self.x_f * sum_group_1_edges - self.y_f * sum_group_2_edges, name="constr_1")
+        self.model.addConstr(self.y_b <= 1 - self.x_b * sum_group_2_edges - self.y_b * sum_group_1_edges, name="constr_2")
+        self.model.addConstr(0.5 * self.x_f + 0.5 * self.y_b >= self.alpha, name="constr_3")
+        self.model.addConstr(0.5 * self.y_f + 0.5 * self.x_b >= self.alpha, name="constr_4")
+
+    def build_model(self):
+        self.build_lp_variables()
+        self.build_lp_constraints()
+        self.model.setObjective(self.alpha, GRB.MAXIMIZE)
+
+    def optimize(self, suppress_output=True):
+        if suppress_output:
+            self.model.setParam('OutputFlag', 0)  # Suppress Gurobi output
+
+        self.model.optimize()
+        self.solution = {}
+        self.solution["alpha"] = self.alpha.X
+        self.solution["x_f"] = self.x_f.X
+        self.solution["x_b"] = self.x_b.X
+        self.solution["y_f"] = self.y_f.X
+        self.solution["y_b"] = self.y_b.X
+
+    def get_solution(self):
+        return self.solution
+
+    def print_solution(self):
+        print("Optimal value of alpha:", self.alpha.X)
+        print("x_f:", self.x_f.X)
+        print("x_b:", self.x_b.X)
+        print("y_f:", self.y_f.X)
+        print("y_b:", self.y_b.X)
+
+    def export_solution_to_json(self, json_file_name):
+        with open(json_file_name, 'w') as f:
+            json.dump(self.solution, f, indent=4)
+
+    def return_model(self):
+        return self.model
 
 class LP_Model:
     def __init__(self, bipartite_graph, arrival_ordering:list[Ordering]):
@@ -133,7 +197,7 @@ class LP_Model:
         self.build_lp_constraints(tight_constr)
         self.model.setObjective(self.alpha, GRB.MAXIMIZE)
 
-    def optimize(self, suppress_output=True):
+    def optimize(self, suppress_output=False):
         if suppress_output:
             self.model.setParam('OutputFlag', 0)  # Suppress Gurobi output
 
@@ -172,14 +236,15 @@ class LP_Model:
     def return_model(self):
         return self.model
         
-def test_fb_star_graph(size_V, u_arrival_time, result_file_name=None, random_order=False, tight_constr=False):
+def test_fb_star_graph(size_V, u_arrival_time, result_file_name=None, random_order=False, tight_constr=False, export_json=True):
     return test_bipartite_graph(size_U=1, 
                                 size_V=size_V, 
                                 u_arrival_times=[u_arrival_time], 
                                 result_file_name=result_file_name, 
                                 fb=True, 
                                 random_order=random_order,
-                                tight_constr=tight_constr)
+                                tight_constr=tight_constr,
+                                export_json=export_json)
 
 def test_single_arrival_star_graph(size_V, u_arrival_time, result_file_name=None, random_order=False, tight_constr=False):
     return test_bipartite_graph(size_U=1, 
@@ -229,19 +294,10 @@ def test_bipartite_graph(size_U, size_V, u_arrival_times, result_file_name=None,
     model = lp_model.return_model()
     nb_reduced_cost_strictly_positive = True
 
-    for v in model.getVars():
-        if v.VBasis != GRB.BASIC:  # Nonbasic variable at lower bound
-            if abs(v.RC) < 1e-6:
-                nb_reduced_cost_strictly_positive = False
-            # print(f"Nonbasic: {v.VarName}={v.X}, Reduced Cost={v.RC}")
-        else:
-            # print(f"Basic:    {v.VarName}={v.X}")
-            pass
-
     if fb:
-        print(f"FB Arrival Order, |U|={size_U}, |V|={size_V}, u_arrival_times={u_arrival_times}, alpha={lp_model.get_solution()['alpha']}, nb_reduced_cost>0: {nb_reduced_cost_strictly_positive}")
+        print(f"FB Arrival Order, |U|={size_U}, |V|={size_V}, u_arrival_times={u_arrival_times}, alpha={lp_model.get_solution()['alpha']}")
     else:
-        print(f"Single Arrival Order, |U|={size_U}, |V|={size_V}, u_arrival_times={u_arrival_times}, alpha={lp_model.get_solution()['alpha']}, nb_reduced_cost>0: {nb_reduced_cost_strictly_positive}")
+        print(f"Single Arrival Order, |U|={size_U}, |V|={size_V}, u_arrival_times={u_arrival_times}, alpha={lp_model.get_solution()['alpha']}")
 
 
     return lp_model.get_solution()
@@ -284,14 +340,33 @@ def test_bipartite_graph_all_permutations(size_U, size_V, result_file_name=None)
     
     print(f"All permutations, |U|={size_U}, |V|={size_V}, alpha={lp_model.get_solution()['alpha']}")
 
+
+def test_simple_lp(size_V, u_arrival_time):
+    bipartite_graph = BipartiteGraph(size_U=1, size_V=size_V)
+    for u in bipartite_graph.U:
+        for v in bipartite_graph.V:
+            bipartite_graph.set_weight(u, v, 1/size_V) # Uniform fractional matching weights
+
+    order = [bipartite_graph.V[i] for i in range(u_arrival_time)] + [bipartite_graph.U[0]] + [bipartite_graph.V[i] for i in range(u_arrival_time, size_V)]
+    ordering = Ordering("ordering", bipartite_graph, 1.0, order)
+
+    lp_model = Simple_LP_FOR_FB(bipartite_graph, ordering)
+    lp_model.build_model()
+    lp_model.optimize()
+    lp_model.print_solution()
+
+    print(f"Simple LP, |U|=1, |V|={size_V}, u_arrival_time={u_arrival_time}, alpha={lp_model.get_solution()['alpha']}")
+    return lp_model.get_solution()
+
 if __name__ == "__main__":
     # test_single_arrival_star_graph(size_V=10, u_arrival_time=0, result_file_name="test.json")
-    test_fb_star_graph(size_V=1000, u_arrival_time=100, result_file_name="test1.json", tight_constr=False)
-    test_fb_star_graph(size_V=1000, u_arrival_time=100, result_file_name="test2.json", tight_constr=True)
+    #test_simple_lp(size_V=1000, u_arrival_time=00)
+
+    # test_fb_star_graph(size_V=10000, u_arrival_time=1, tight_constr=True, )
 
     # test_bipartite_graph(size_U=10, size_V=10, u_arrival_times=None, result_file_name="test.json", fb=True, random_order=True)
 
-    # test_bipartite_graph(size_U=1, size_V=100, u_arrival_times=[99], result_file_name="test_bipartite.json", fb=False)
+    test_bipartite_graph(size_U=1, size_V=10000, u_arrival_times=[1], result_file_name="test_bipartite_V5000.json", fb=True)
 
     # test_bipartite_graph(size_U=2, size_V=10, u_arrival_times=[4,8], result_file_name="single_bipartite_U2_V10_arrival4_8.json", fb=False)
     # test_bipartite_graph(size_U=2, size_V=100, u_arrival_times=[40,80], result_file_name="single_bipartite_U2_V100_arrival40_80.json", fb=False)
