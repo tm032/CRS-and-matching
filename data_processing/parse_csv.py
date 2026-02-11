@@ -1,8 +1,14 @@
 import pandas as pd
 import re
 
+import pathlib
+project_dir = pathlib.Path(__file__).parent.parent
+raw_results_dir = project_dir / "raw_results"
+summary_results_dir = project_dir / "summary_results"
+figures_dir = project_dir / "figures"
+
 # Read compare_lp_formulation_results.csv
-df = pd.read_csv("compare_lp_formulation_results.csv")
+df = pd.read_csv(raw_results_dir / "compare_lp_formulation_results.csv")
 
 # For all entries
 # Extract alpha values
@@ -20,4 +26,4 @@ for i in range(len(df)):
 
 # Save the results to a new CSV file
 results_df = df[["u_arrival_time", "optimal_alpha_lp", "optimal_alpha_simple_lp"]]
-results_df.to_csv("compare_lp_formulation_alpha.csv", index=False)
+results_df.to_csv(summary_results_dir / "compare_lp_formulation_alpha.csv", index=False)

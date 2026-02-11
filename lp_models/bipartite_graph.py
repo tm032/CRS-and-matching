@@ -6,6 +6,12 @@ import json
 import pickle as pkl
 import random
 
+import pathlib
+
+project_dir = pathlib.Path(__file__).parent.parent
+raw_results_dir = project_dir / "raw_results"
+figures_dir = project_dir / "figures"
+
 class BipartiteGraph:
     def __init__(self, size_U, size_V, weights=None):
         self.U = [f"u_{i}" for i in range(1, size_U+1)]  # Set of vertices in partition U
@@ -39,7 +45,7 @@ class Ordering:
         return self.arrival_order[v1] < self.arrival_order[v2]
     
     def generate_reverse_order(self, p):
-        reversed_order = list(reversed(self.arrival_order))
+        reversed_order = list(reversed(self.arrival_order_list))
         return Ordering(self.bipartite_graph, p, reversed_order)
     
     def get_previous_vertex(self, vertex, same_side=False):
@@ -123,6 +129,7 @@ class Simple_LP_FOR_FB:
         print("y_b:", self.y_b.X)
 
     def export_solution_to_json(self, json_file_name):
+        json_file_name = raw_results_dir / json_file_name
         with open(json_file_name, 'w') as f:
             json.dump(self.solution, f, indent=4)
 
@@ -226,10 +233,12 @@ class LP_Model:
         return self.solution
     
     def export_solution_to_json(self, json_file_name):
+        json_file_name = raw_results_dir / json_file_name
         with open(json_file_name, 'w') as f:
             json.dump(self.json_compatible_solution, f, indent=4)
 
     def export_solution_to_pickle(self, pickle_file_name):
+        pickle_file_name = raw_results_dir / pickle_file_name
         with open(pickle_file_name, 'wb') as f:
             pkl.dump(self.solution, f)
 
@@ -257,7 +266,7 @@ def test_single_arrival_star_graph(size_V, u_arrival_time, result_file_name=None
 
 def test_bipartite_graph(size_U, size_V, u_arrival_times, result_file_name=None, export_json=True, fb=False, random_order=False, tight_constr=False):
     if result_file_name is None:
-        result_file_name = f"single_arrival_bipartite_graph_U{size_U}_V{size_V}_arrival{u_arrival_times}.json"
+        result_file_name = f"{raw_results_dir}/single_arrival_bipartite_graph_U{size_U}_V{size_V}_arrival{u_arrival_times}.json"
 
     bipartite_graph = BipartiteGraph(size_U, size_V)
     
@@ -310,9 +319,9 @@ def test_bipartite_graph_all_permutations(size_U, size_V, result_file_name=None)
 
     if result_file_name is None:
         if permutation_size <= 1000:
-            result_file_name = f"bipartite_all_permutations_U{size_U}_V{size_V}.json"
+            result_file_name = f"{raw_results_dir}/bipartite_all_permutations_U{size_U}_V{size_V}.json"
         else: # save in pickle file
-            result_file_name = f"bipartite_all_permutations_U{size_U}_V{size_V}.pkl"
+            result_file_name = f"{raw_results_dir}/bipartite_all_permutations_U{size_U}_V{size_V}.pkl"
             
     bipartite_graph = BipartiteGraph(size_U, size_V)
     for u in bipartite_graph.U:
@@ -359,14 +368,14 @@ def test_simple_lp(size_V, u_arrival_time):
     return lp_model.get_solution()
 
 if __name__ == "__main__":
-    # test_single_arrival_star_graph(size_V=10, u_arrival_time=0, result_file_name="test.json")
-    #test_simple_lp(size_V=1000, u_arrival_time=00)
+    test_single_arrival_star_graph(size_V=10, u_arrival_time=0, result_file_name="test.json")
+    # test_simple_lp(size_V=1000, u_arrival_time=400)
 
     # test_fb_star_graph(size_V=10000, u_arrival_time=1, tight_constr=True, )
 
     # test_bipartite_graph(size_U=10, size_V=10, u_arrival_times=None, result_file_name="test.json", fb=True, random_order=True)
 
-    test_bipartite_graph(size_U=1, size_V=10000, u_arrival_times=[1], result_file_name="test_bipartite_V5000.json", fb=True)
+    # test_bipartite_graph(size_U=1, size_V=10000, u_arrival_times=[1], result_file_name="test_bipartite_V5000.json", fb=True)
 
     # test_bipartite_graph(size_U=2, size_V=10, u_arrival_times=[4,8], result_file_name="single_bipartite_U2_V10_arrival4_8.json", fb=False)
     # test_bipartite_graph(size_U=2, size_V=100, u_arrival_times=[40,80], result_file_name="single_bipartite_U2_V100_arrival40_80.json", fb=False)
