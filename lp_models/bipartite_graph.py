@@ -177,16 +177,30 @@ class LP_Model:
                     expr_1 = gp.LinExpr()
                     expr_2 = gp.LinExpr()
 
-                    for w in self.bipartite_graph.V:
-                        if ordering.lt(u, v):
-                            if ordering.lt(w, u):
-                                expr_1 += self.c[ordering.id][(w, u)] * self.bipartite_graph.get_weight(w, u)
+                    expr_3 = gp.LinExpr()
+                    expr_4 = gp.LinExpr()
 
-                            if ordering.lt(u, w) and ordering.lt(w, v):
-                                expr_2 += self.c[ordering.id][(u, w)] * self.bipartite_graph.get_weight(u, w)
+                    for v_prior in self.bipartite_graph.V:
+                        if ordering.lt(u, v):
+                            if ordering.lt(v_prior, u):
+                                expr_1 += self.c[ordering.id][(v_prior, u)] * self.bipartite_graph.get_weight(v_prior, u)
+
+                            if ordering.lt(u, v_prior) and ordering.lt(v_prior, v):
+                                expr_2 += self.c[ordering.id][(u, v_prior)] * self.bipartite_graph.get_weight(u, v_prior)
                     
+                    for u_prior in self.bipartite_graph.U:
+                        if ordering.lt(v,u):
+                            if ordering.lt(u_prior, v):
+                                expr_3 += self.c[ordering.id][(u_prior, v)] * self.bipartite_graph.get_weight(u_prior, v)
+
+                            if ordering.lt(v, u_prior) and ordering.lt(u_prior, u):
+                                expr_4 += self.c[ordering.id][(v, u_prior)] * self.bipartite_graph.get_weight(v, u_prior)
+
+
                     if ordering.lt(u, v):
                         self.model.addConstr(self.c[ordering.id][(u, v)] <= 1 - expr_1 - expr_2, name=f"constr_2_{ordering.id}_{u}_{v}")
+                    elif ordering.lt(v, u):
+                        self.model.addConstr(self.c[ordering.id][(v, u)] <= 1 - expr_3 - expr_4, name=f"constr_2_{ordering.id}_{v}_{u}")
 
         if tight_constr:
             for ordering in self.arrival_orders:
@@ -212,6 +226,9 @@ class LP_Model:
 
         self.solution = {}
         self.json_compatible_solution = {}
+
+        self.json_compatible_solution["ordering"] = [vertex for vertex in self.arrival_orders[0].arrival_order_list]
+        self.json_compatible_solution["weights"] = {f"({u},{v})": self.bipartite_graph.get_weight(u, v) for u in self.bipartite_graph.U for v in self.bipartite_graph.V}
 
         self.solution["alpha"] = self.alpha.X
         self.json_compatible_solution["alpha"] = self.alpha.X
@@ -244,6 +261,9 @@ class LP_Model:
 
     def return_model(self):
         return self.model
+    
+    def get_ordering_list(self):
+        return self.arrival_orders.arrival_order_list
         
 def test_fb_star_graph(size_V, u_arrival_time, result_file_name=None, random_order=False, tight_constr=False, export_json=True):
     return test_bipartite_graph(size_U=1, 
@@ -264,15 +284,16 @@ def test_single_arrival_star_graph(size_V, u_arrival_time, result_file_name=None
                                 random_order=random_order, 
                                 tight_constr=tight_constr)
 
-def test_bipartite_graph(size_U, size_V, u_arrival_times, result_file_name=None, export_json=True, fb=False, random_order=False, tight_constr=False):
+def test_bipartite_graph(size_U, size_V, u_arrival_times, result_file_name=None, export_json=True, fb=False, random_order=False, tight_constr=False, weights=None):
     if result_file_name is None:
         result_file_name = f"{raw_results_dir}/single_arrival_bipartite_graph_U{size_U}_V{size_V}_arrival{u_arrival_times}.json"
 
-    bipartite_graph = BipartiteGraph(size_U, size_V)
+    bipartite_graph = BipartiteGraph(size_U, size_V, weights=weights)
     
-    for u in bipartite_graph.U:
-        for v in bipartite_graph.V:
-            bipartite_graph.set_weight(u, v, 1/max(size_U, size_V)) # Uniform fractional matching weights
+    if weights is None:
+        for u in bipartite_graph.U:
+            for v in bipartite_graph.V:
+                bipartite_graph.set_weight(u, v, 1/max(size_U, size_V)) # Uniform fractional matching weights
 
     if random_order:
         all_vertices = bipartite_graph.V + bipartite_graph.U
@@ -368,12 +389,21 @@ def test_simple_lp(size_V, u_arrival_time):
     return lp_model.get_solution()
 
 if __name__ == "__main__":
-    test_single_arrival_star_graph(size_V=10, u_arrival_time=0, result_file_name="test.json")
-    # test_simple_lp(size_V=1000, u_arrival_time=400)
+    weights_original = {("u_1", "v_1"): 0.5, ("u_1", "v_2"): 0.5, ("u_2", "v_1"): 0.5, ("u_2", "v_2"): 0.5}
+    test_bipartite_graph(size_U=2, size_V=2, u_arrival_times=[0,0], result_file_name="test_original.json", fb=True, weights=weights_original)
 
-    # test_fb_star_graph(size_V=10000, u_arrival_time=1, tight_constr=True, )
+    weights_split = {("u_1", "v_1"): 0.25, ("u_1", "v_2"): 0.25, ("u_1", "v_3"): 0.5, ("u_2", "v_1"): 0.25, ("u_2", "v_2"): 0.25, ("u_2", "v_3"): 0.5}
+    test_bipartite_graph(size_U=2, size_V=3, u_arrival_times=[0,0], result_file_name="test_split.json", fb=True, weights=weights_split)
 
-    # test_bipartite_graph(size_U=10, size_V=10, u_arrival_times=None, result_file_name="test.json", fb=True, random_order=True)
+    # weights_original = {("u_1", "v_1"): 1/3, ("u_1", "v_2"): 1/3, ("u_1", "v_3"): 1/3, ("u_2", "v_1"): 1/3, ("u_2", "v_2"): 1/3, ("u_2", "v_3"): 1/3}
+    # test_bipartite_graph(size_U=2, size_V=3, u_arrival_times=[0,0], result_file_name="test_original.json", fb=True, weights=weights_original)
+
+    # weights_split = {("u_1", "v_1"): 1/6, ("u_1", "v_2"): 1/6, ("u_1", "v_3"): 1/3, ("u_1", "v_4"): 1/3, ("u_2", "v_1"): 1/6, ("u_2", "v_2"): 1/6, ("u_2", "v_3"): 1/3, ("u_2", "v_4"): 1/3}
+    # test_bipartite_graph(size_U=2, size_V=4, u_arrival_times=[0,0], result_file_name="test_split.json", fb=True, weights=weights_split)
+
+
+
+
 
     # test_bipartite_graph(size_U=1, size_V=10000, u_arrival_times=[1], result_file_name="test_bipartite_V5000.json", fb=True)
 
