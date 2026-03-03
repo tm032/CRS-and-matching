@@ -316,7 +316,7 @@ def test_bipartite_graph(size_U, size_V, u_arrival_times, result_file_name=None,
 
     lp_model = LP_Model(bipartite_graph, arrival_orderings)
     lp_model.build_model(tight_constr=tight_constr)
-    lp_model.optimize()
+    lp_model.optimize(suppress_output=True)
 
     if export_json:
         lp_model.export_solution_to_json(json_file_name=result_file_name)
@@ -389,23 +389,97 @@ def test_simple_lp(size_V, u_arrival_time):
     return lp_model.get_solution()
 
 if __name__ == "__main__":
-    weights_original = {("u_1", "v_1"): 0.5, ("u_1", "v_2"): 0.5, ("u_2", "v_1"): 0.5, ("u_2", "v_2"): 0.5}
-    test_bipartite_graph(size_U=2, size_V=2, u_arrival_times=[0,0], result_file_name="test_original.json", fb=True, weights=weights_original)
+    # weights_original = {("u_1", "v_1"): 0.25, ("u_1", "v_2"): 0.25, ("u_2", "v_1"): 0.25, ("u_2", "v_2"): 0.25}
+    # test_bipartite_graph(size_U=2, size_V=2, u_arrival_times=[0,0], result_file_name="test_split.json", fb=True, weights=weights_original)
 
-    weights_split = {("u_1", "v_1"): 0.25, ("u_1", "v_2"): 0.25, ("u_1", "v_3"): 0.5, ("u_2", "v_1"): 0.25, ("u_2", "v_2"): 0.25, ("u_2", "v_3"): 0.5}
-    test_bipartite_graph(size_U=2, size_V=3, u_arrival_times=[0,0], result_file_name="test_split.json", fb=True, weights=weights_split)
+    # test_bipartite_graph(size_U=2, size_V=1, u_arrival_times=[0,0], result_file_name="test_original.json", fb=True)
+
+    # weights_split = {("u_1", "v_1"): 0.25, ("u_1", "v_2"): 0.25, ("u_1", "v_3"): 0.5, ("u_2", "v_1"): 0.25, ("u_2", "v_2"): 0.25, ("u_2", "v_3"): 0.5}
+    # test_bipartite_graph(size_U=2, size_V=3, u_arrival_times=[3,3], result_file_name="test_split.json", fb=True, weights=weights_split)
 
     # weights_original = {("u_1", "v_1"): 1/3, ("u_1", "v_2"): 1/3, ("u_1", "v_3"): 1/3, ("u_2", "v_1"): 1/3, ("u_2", "v_2"): 1/3, ("u_2", "v_3"): 1/3}
     # test_bipartite_graph(size_U=2, size_V=3, u_arrival_times=[0,0], result_file_name="test_original.json", fb=True, weights=weights_original)
 
     # weights_split = {("u_1", "v_1"): 1/6, ("u_1", "v_2"): 1/6, ("u_1", "v_3"): 1/3, ("u_1", "v_4"): 1/3, ("u_2", "v_1"): 1/6, ("u_2", "v_2"): 1/6, ("u_2", "v_3"): 1/3, ("u_2", "v_4"): 1/3}
     # test_bipartite_graph(size_U=2, size_V=4, u_arrival_times=[0,0], result_file_name="test_split.json", fb=True, weights=weights_split)
+    
+    size_U = 1
+
+    size_V_list = [1,2,4,8,16,32,64,128,256,512]
+    alphas = {"one_side_U_0": {}, "one_side_U_1": {}, "one_side_U_half": {}, "distributed": {}}
+    
+    for size_U in range(1,6):
+        alphas["one_side_U_0"][size_U] = []
+        alphas["one_side_U_1"][size_U] = []
+        alphas["one_side_U_half"][size_U] = []
+        alphas["distributed"][size_U] = []
+        for i in range(len(size_V_list)):
+            size_V = size_V_list[i]
+            result_one_side_U_0 = test_bipartite_graph(size_U=size_U, size_V=size_V, u_arrival_times=[0 for _ in range(size_U)], result_file_name=f"test.json", fb=True, random_order=False, tight_constr=False)
+            alphas["one_side_U_0"][size_U].append(result_one_side_U_0["alpha"])
+
+            result_one_side_U_1 = test_bipartite_graph(size_U=size_U, size_V=size_V, u_arrival_times=[1 for _ in range(size_U)], result_file_name=f"test.json", fb=True, random_order=False, tight_constr=False)
+            alphas["one_side_U_1"][size_U].append(result_one_side_U_1["alpha"])
+
+            result_one_side_U_half = test_bipartite_graph(size_U=size_U, size_V=size_V, u_arrival_times=[size_V//2 for _ in range(size_U)], result_file_name=f"test.json", fb=True, random_order=False, tight_constr=False)
+            alphas["one_side_U_half"][size_U].append(result_one_side_U_half["alpha"])
+
+            if size_V >= 8: # skip small size_V for distributed duplication since they are the same as one side duplication
+                result_distributed = test_bipartite_graph(size_U=size_U, size_V=size_V, u_arrival_times=[int(size_V * i / size_U) + 1 for i in range(size_U)], result_file_name=f"test.json", fb=True, random_order=True, tight_constr=False)
+                alphas["distributed"][size_U].append(result_distributed["alpha"])
+
+    json.dump(alphas, open(raw_results_dir / "duplicating_vertices_alphas.json", "w"), indent=4)
+
+    # json.dump(alphas["one_side"], open(raw_results_dir / "duplicating_vertices_one_side.json", "w"), indent=4)
+    # json.dump(alphas["distributed"], open(raw_results_dir / "duplicating_vertices_distributed.json", "w"), indent=4)
 
 
+    # test_bipartite_graph(size_U=size_U, size_V=1, u_arrival_times=[1 for _ in range(size_U)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=2, u_arrival_times=[1 for _ in range(size_U)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=4, u_arrival_times=[1 for _ in range(size_U)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=8, u_arrival_times=[1 for _ in range(size_U)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=16, u_arrival_times=[1 for _ in range(size_U)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=32, u_arrival_times=[1 for _ in range(size_U)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=64, u_arrival_times=[1 for _ in range(size_U)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=128, u_arrival_times=[1 for _ in range(size_U)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=256, u_arrival_times=[1 for _ in range(size_U)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=512, u_arrival_times=[1 for _ in range(size_U)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=1024, u_arrival_times=[1 for _ in range(size_U)], result_file_name="test_U2.json", fb=True)
+
+    # test_bipartite_graph(size_U=size_U, size_V=4, u_arrival_times=[int(4 * i / size_U) for i in range(size_U)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=8, u_arrival_times=[int(8 * i / size_U) for i in range(size_U)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=16, u_arrival_times=[int(16 * i / size_U) for i in range(size_U)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=32, u_arrival_times=[int(32 * i / size_U) for i in range(size_U)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=64, u_arrival_times=[int(64 * i / size_U) for i in range(size_U)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=128, u_arrival_times=[int(128 * i / size_U) for i in range(size_U)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=256, u_arrival_times=[int(256 * i / size_U) for i in range(size_U)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=512, u_arrival_times=[int(512 * i / size_U) for i in range(size_U)], result_file_name="test_U2.json", fb=True)
 
 
+    # test_bipartite_graph(size_U=size_U, size_V=4, u_arrival_times=[0] + [int(4 * i / size_U) for i in range(size_U-1)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=8, u_arrival_times=[0] + [int(8 * i / size_U) for i in range(size_U-1)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=16, u_arrival_times=[0] + [int(16 * i / size_U) for i in range(size_U-1)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=32, u_arrival_times=[0] + [int(32 * i / size_U) for i in range(size_U-1)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=64, u_arrival_times=[0] + [int(64 * i / size_U) for i in range(size_U-1)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=128, u_arrival_times=[0] + [int(128 * i / size_U) for i in range(size_U-1)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=256, u_arrival_times=[0] + [int(256 * i / size_U) for i in range(size_U-1)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=512, u_arrival_times=[0] + [int(512 * i / size_U) for i in range(size_U-1)], result_file_name="test_U2.json", fb=True)
 
-    # test_bipartite_graph(size_U=1, size_V=10000, u_arrival_times=[1], result_file_name="test_bipartite_V5000.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=4, u_arrival_times=[int(i + size_U / 2) for i in range(size_U)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=8, u_arrival_times=[int(2*i + size_U / 2) for i in range(size_U)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=16, u_arrival_times=[int(4*i + size_U / 2) for i in range(size_U)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=32, u_arrival_times=[int(8*i + size_U / 2) for i in range(size_U)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=64, u_arrival_times=[int(16*i + size_U / 2) for i in range(size_U)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=128, u_arrival_times=[int(32*i + size_U / 2) for i in range(size_U)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=256, u_arrival_times=[int(64*i + size_U / 2) for i in range(size_U)], result_file_name="test_U2.json", fb=True)
+    # test_bipartite_graph(size_U=size_U, size_V=512, u_arrival_times=[int(128*i + size_U / 2) for i in range(size_U)], result_file_name="test_u_512.json", fb=True)
+    # test_bipartite_graph(size_U=size_u, size_V=1024, u_arrival_times=[int(256*i + size_u / 2) for i in range(size_u)], result_file_name="test_u_1024.json", fb=True)
+
+    # test_bipartite_graph(size_U=2, size_V=100, u_arrival_times=[1,2], result_file_name="test_U3.json", fb=True)
+    # test_bipartite_graph(size_U=2, size_V=150, u_arrival_times=[1,2], result_file_name="test_U3.json", fb=True)
+    # test_bipartite_graph(size_U=2, size_V=200, u_arrival_times=[1,2], result_file_name="test_U3.json", fb=True)
+    # test_bipartite_graph(size_U=2, size_V=400, u_arrival_times=[1,2], result_file_name="test_U3.json", fb=True)
+    # test_bipartite_graph(size_U=2, size_V=600, u_arrival_times=[1,2], result_file_name="test_U3.json", fb=True)
 
     # test_bipartite_graph(size_U=2, size_V=10, u_arrival_times=[4,8], result_file_name="single_bipartite_U2_V10_arrival4_8.json", fb=False)
     # test_bipartite_graph(size_U=2, size_V=100, u_arrival_times=[40,80], result_file_name="single_bipartite_U2_V100_arrival40_80.json", fb=False)
