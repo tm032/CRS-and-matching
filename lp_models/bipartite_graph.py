@@ -106,7 +106,7 @@ class Simple_LP_FOR_FB:
         self.build_lp_constraints()
         self.model.setObjective(self.alpha, GRB.MAXIMIZE)
 
-    def optimize(self, suppress_output=True):
+    def optimize(self, suppress_output=False):
         if suppress_output:
             self.model.setParam('OutputFlag', 0)  # Suppress Gurobi output
 
@@ -316,7 +316,7 @@ def test_bipartite_graph(size_U, size_V, u_arrival_times, result_file_name=None,
 
     lp_model = LP_Model(bipartite_graph, arrival_orderings)
     lp_model.build_model(tight_constr=tight_constr)
-    lp_model.optimize(suppress_output=True)
+    lp_model.optimize(suppress_output=False)
 
     if export_json:
         lp_model.export_solution_to_json(json_file_name=result_file_name)
@@ -403,32 +403,37 @@ if __name__ == "__main__":
     # weights_split = {("u_1", "v_1"): 1/6, ("u_1", "v_2"): 1/6, ("u_1", "v_3"): 1/3, ("u_1", "v_4"): 1/3, ("u_2", "v_1"): 1/6, ("u_2", "v_2"): 1/6, ("u_2", "v_3"): 1/3, ("u_2", "v_4"): 1/3}
     # test_bipartite_graph(size_U=2, size_V=4, u_arrival_times=[0,0], result_file_name="test_split.json", fb=True, weights=weights_split)
     
-    size_U = 1
+    # test_bipartite_graph(size_U=100, size_V=100, u_arrival_times=[0 for _ in range(100)], result_file_name="test_large.json", fb=True, tight_constr=False)
+    # test_bipartite_graph(size_U=10, size_V=10, u_arrival_times=[0 for _ in range(10)], result_file_name="test_10.json", fb=True, tight_constr=False)
+    test_bipartite_graph(size_U=10, size_V=10, u_arrival_times=[i for i in range(10)], result_file_name="test_10_alternate.json", fb=True, tight_constr=False)
 
-    size_V_list = [1,2,4,8,16,32,64,128,256,512]
-    alphas = {"one_side_U_0": {}, "one_side_U_1": {}, "one_side_U_half": {}, "distributed": {}}
+
+    # size_U = 1
+
+    # size_V_list = [1,2,4,8,16,32,64,128,256,512]
+    # alphas = {"one_side_U_0": {}, "one_side_U_1": {}, "one_side_U_half": {}, "distributed": {}}
     
-    for size_U in range(1,6):
-        alphas["one_side_U_0"][size_U] = []
-        alphas["one_side_U_1"][size_U] = []
-        alphas["one_side_U_half"][size_U] = []
-        alphas["distributed"][size_U] = []
-        for i in range(len(size_V_list)):
-            size_V = size_V_list[i]
-            result_one_side_U_0 = test_bipartite_graph(size_U=size_U, size_V=size_V, u_arrival_times=[0 for _ in range(size_U)], result_file_name=f"test.json", fb=True, random_order=False, tight_constr=False)
-            alphas["one_side_U_0"][size_U].append(result_one_side_U_0["alpha"])
+    # for size_U in range(1,6):
+    #     alphas["one_side_U_0"][size_U] = []
+    #     alphas["one_side_U_1"][size_U] = []
+    #     alphas["one_side_U_half"][size_U] = []
+    #     alphas["distributed"][size_U] = []
+    #     for i in range(len(size_V_list)):
+    #         size_V = size_V_list[i]
+    #         result_one_side_U_0 = test_bipartite_graph(size_U=size_U, size_V=size_V, u_arrival_times=[0 for _ in range(size_U)], result_file_name=f"test.json", fb=True, random_order=False, tight_constr=False)
+    #         alphas["one_side_U_0"][size_U].append(result_one_side_U_0["alpha"])
 
-            result_one_side_U_1 = test_bipartite_graph(size_U=size_U, size_V=size_V, u_arrival_times=[1 for _ in range(size_U)], result_file_name=f"test.json", fb=True, random_order=False, tight_constr=False)
-            alphas["one_side_U_1"][size_U].append(result_one_side_U_1["alpha"])
+    #         result_one_side_U_1 = test_bipartite_graph(size_U=size_U, size_V=size_V, u_arrival_times=[1 for _ in range(size_U)], result_file_name=f"test.json", fb=True, random_order=False, tight_constr=False)
+    #         alphas["one_side_U_1"][size_U].append(result_one_side_U_1["alpha"])
 
-            result_one_side_U_half = test_bipartite_graph(size_U=size_U, size_V=size_V, u_arrival_times=[size_V//2 for _ in range(size_U)], result_file_name=f"test.json", fb=True, random_order=False, tight_constr=False)
-            alphas["one_side_U_half"][size_U].append(result_one_side_U_half["alpha"])
+    #         result_one_side_U_half = test_bipartite_graph(size_U=size_U, size_V=size_V, u_arrival_times=[size_V//2 for _ in range(size_U)], result_file_name=f"test.json", fb=True, random_order=False, tight_constr=False)
+    #         alphas["one_side_U_half"][size_U].append(result_one_side_U_half["alpha"])
 
-            if size_V >= 8: # skip small size_V for distributed duplication since they are the same as one side duplication
-                result_distributed = test_bipartite_graph(size_U=size_U, size_V=size_V, u_arrival_times=[int(size_V * i / size_U) + 1 for i in range(size_U)], result_file_name=f"test.json", fb=True, random_order=True, tight_constr=False)
-                alphas["distributed"][size_U].append(result_distributed["alpha"])
+    #         if size_V >= 8: # skip small size_V for distributed duplication since they are the same as one side duplication
+    #             result_distributed = test_bipartite_graph(size_U=size_U, size_V=size_V, u_arrival_times=[int(size_V * i / size_U) + 1 for i in range(size_U)], result_file_name=f"test.json", fb=True, random_order=True, tight_constr=False)
+    #             alphas["distributed"][size_U].append(result_distributed["alpha"])
 
-    json.dump(alphas, open(raw_results_dir / "duplicating_vertices_alphas.json", "w"), indent=4)
+    # json.dump(alphas, open(raw_results_dir / "duplicating_vertices_alphas.json", "w"), indent=4)
 
     # json.dump(alphas["one_side"], open(raw_results_dir / "duplicating_vertices_one_side.json", "w"), indent=4)
     # json.dump(alphas["distributed"], open(raw_results_dir / "duplicating_vertices_distributed.json", "w"), indent=4)
